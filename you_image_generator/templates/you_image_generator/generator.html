@@ -1,0 +1,225 @@
+{% load static %}
+{% load image_extras %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="{% static 'images/favicon.ico' %}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{% static 'images/favicon.png' %}">
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    <title>AI Image Generator - Multi-Provider</title>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎨 AI Image Generator</h1>
+            <p class="subtitle">Powered by Multiple AI Providers</p>
+        </header>
+
+        <div class="main-content">
+            <div class="generator-form">
+                <h2 style="margin-bottom: 25px; color: #333;">Generate Your Image</h2>
+                
+                <form id="generateForm">
+                    {% csrf_token %}
+                    
+                    <div class="form-group">
+                        <label>Select AI Provider <span class="label-help">(Green = Free, Yellow = Paid)</span></label>
+                        <div class="provider-grid">
+                            {% for key, info in available_providers.items %}
+                            <div class="provider-card" data-provider="{{ key }}">
+                                <span class="provider-badge {% if info.free %}badge-free{% else %}badge-paid{% endif %}">
+                                    {% if info.free %}FREE{% else %}PAID{% endif %}
+                                </span>
+                                <div class="provider-name">{{ info.name }}</div>
+                                <div class="provider-quality">
+                                    <span class="quality-stars">
+                                        {% if info.quality == 1 %}★☆☆☆☆{% endif %}
+                                        {% if info.quality == 2 %}★★☆☆☆{% endif %}
+                                        {% if info.quality == 3 %}★★★☆☆{% endif %}
+                                        {% if info.quality == 4 %}★★★★☆{% endif %}
+                                        {% if info.quality == 5 %}★★★★★{% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <input type="hidden" name="provider" id="providerInput" value="{{ default_provider }}">
+                    </div>
+
+                    <!-- Style Preset Selector -->
+                    <div class="form-group">
+                        <label for="stylePreset">
+                            <span style="font-size: 18px;">🎨</span> 
+                            <strong>Style Preset</strong> 
+                            <span style="font-size: 12px; color: #666;">(Optional - Enhances your prompt)</span>
+                        </label>
+                        <select id="stylePreset" name="style_preset" class="form-control">
+                            <option value="">None - Use Original Prompt</option>
+                            <optgroup label="📷 Realistic Styles">
+                                <option value="realistic">Realistic Photo</option>
+                                <option value="vintage">Vintage Film</option>
+                            </optgroup>
+                            <optgroup label="🎨 Artistic Styles">
+                                <option value="anime">Anime/Manga</option>
+                                <option value="oil_painting">Oil Painting</option>
+                                <option value="watercolor">Watercolor</option>
+                                <option value="comic">Comic Book</option>
+                                <option value="abstract">Abstract Art</option>
+                            </optgroup>
+                            <optgroup label="🌃 Modern Styles">
+                                <option value="cyberpunk">Cyberpunk</option>
+                                <option value="fantasy">Fantasy Art</option>
+                                <option value="minimalist">Minimalist</option>
+                            </optgroup>
+                        </select>
+                        <small class="form-text text-muted">
+                            ℹ️ Style presets automatically add keywords to enhance your prompt
+                        </small>
+                    </div>
+
+                    <!-- Hugging Face Model Selector -->
+                    <div id="hfModelSelector" class="form-group" style="display: none;">
+                        <label for="hf_model">Hugging Face Model</label>
+                        <select name="hf_model" id="hf_model">
+                            <option value="flux-schnell" selected>FLUX.1 Schnell (Fast & Good)</option>
+                            <option value="stable-diffusion-xl">Stable Diffusion XL</option>
+                            <option value="stable-diffusion-3">Stable Diffusion 3</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="prompt">Describe Your Image <span class="label-help">(Be detailed for best results)</span></label>
+                        <textarea name="prompt" id="prompt" placeholder="e.g., A majestic lion standing on a mountain peak at sunset, photorealistic, 8k quality" required></textarea>
+                    </div>
+
+                    <button type="button" class="toggle-advanced" onclick="toggleAdvanced()">⚙️ Advanced Options</button>
+
+                    <div id="advancedOptions" class="advanced-options">
+                        <div class="form-group">
+                            <label for="negative_prompt">Negative Prompt <span class="label-help">(What to avoid)</span></label>
+                            <input type="text" name="negative_prompt" id="negative_prompt" placeholder="e.g., blurry, distorted, low quality">
+                        </div>
+
+                        <div class="row-3">
+                            <div class="form-group">
+                                <label for="aspect_ratio">Ratio</label>
+                                <select name="aspect_ratio" id="aspect_ratio">
+                                    <option value="1:1" selected>1:1 (Square)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="width">Width (px)</label>
+                                <input type="number" name="width" id="width" value="1024" min="256" max="2048" step="64">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="height">Height (px)</label>
+                                <input type="number" name="height" id="height" value="1024" min="256" max="2048" step="64">
+                            </div>
+                        </div>
+
+                        <div class="row-3">
+                            <div class="form-group">
+                                <label for="output_format">Format</label>
+                                <select name="output_format" id="output_format">
+                                    <option value="PNG" selected>PNG</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group" id="seedGroup">
+                                <label for="seed">Seed <span class="label-help">(Random if empty)</span></label>
+                                <input type="number" name="seed" id="seed" placeholder="Random">
+                            </div>
+
+                            <div class="form-group" id="cfgGroup">
+                                <label for="cfg_scale">CFG Scale <span class="label-help">(7 default)</span></label>
+                                <input type="number" name="cfg_scale" id="cfg_scale" value="7" min="1" max="20" step="0.5">
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn" id="generateBtn">🎨 Generate Image</button>
+                </form>
+
+                <div id="errorMessage" class="error-message"></div>
+
+                <div id="loading" class="loading">
+                    <div class="spinner"></div>
+                    <p>Generating your masterpiece...</p>
+                    <p style="font-size: 0.9em; color: #666; margin-top: 10px;">This may take 5-30 seconds</p>
+                </div>
+
+                <div id="resultContainer" class="result-container">
+                    <h3 style="margin-bottom: 20px;">✨ Your Generated Image</h3>
+                    <img id="generatedImage" class="generated-image" alt="Generated" onclick="openModal(this.src, currentGeneratedData)">
+                    <div style="margin-top: 15px;">
+                        <p><strong>Prompt:</strong> <span id="resultPrompt"></span></p>
+                        <p><strong>Model:</strong> <span id="resultModel"></span></p>
+                        <p><strong>Provider:</strong> <span id="resultProvider"></span></p>
+                    </div>
+                    <button class="btn" onclick="generateAnother()" style="margin-top: 20px; max-width: 300px;">Generate Another</button>
+                </div>
+            </div>
+
+            {% if generated_images %}
+            <div class="gallery">
+                <h2>📸 Recent Generations</h2>
+                <div class="gallery-grid" id="galleryGrid">
+                    <!-- Images will be loaded via JavaScript for pagination -->
+                </div>
+                <div class="pagination" id="pagination"></div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Modal for image details -->
+    <div id="imageModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+            <img id="modalImage" class="modal-image" alt="Full size">
+            <div class="modal-info">
+                <h3>Image Details</h3>
+                <div class="info-row">
+                    <div class="info-label">Prompt</div>
+                    <div class="info-value" id="modalPrompt"></div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Model</div>
+                    <div class="info-value" id="modalModel"></div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Resolution</div>
+                    <div class="info-value" id="modalResolution"></div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Format</div>
+                    <div class="info-value" id="modalFormat"></div>
+                </div>
+                <div class="info-row" id="modalStylePresetRow" style="display: none;">
+                    <div class="info-label">Style</div>
+                    <div class="info-value" id="modalStylePreset"></div>
+                </div>
+                <div class="modal-actions">
+                    <button class="modal-btn modal-btn-primary" onclick="copyPrompt()">📋 Copy Prompt</button>
+                    <button class="modal-btn modal-btn-primary" onclick="downloadImage()">⬇️ Download</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Données pour JavaScript -->
+    <script id="images-data" type="application/json">
+        {{ images_json|safe }}
+    </script>
+    <script>
+        window.ALL_CONFIGS_URL = "{% url 'you_image_generator:all_configs' %}";
+        window.GENERATE_API_URL = "{% url 'you_image_generator:generate_api' %}";
+    </script>
+    <script src="{% static 'js/generator.js' %}"></script>
+    <script src="{% static 'js/form-handler.js' %}"></script>
+</body>
+</html>

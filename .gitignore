@@ -1,0 +1,59 @@
+# Environment variables
+.env
+.env.*
+.env.save
+*.env
+
+# Database backups
+z_backups_db/
+*.sql
+*.dump
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Django stuff
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+
+# Weights and large model files (optional - si vous voulez les versionner, retirez cette ligne)
+weights/
+*.pth
+*.ckpt
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Docker volumes (optional)
+postgres_data/
+pgadmin_data/

@@ -1,0 +1,182 @@
+site_name: "OpenImage Documentation"
+site_description: "Complete documentation for OpenImage - Multi-Provider AI Image Generator"
+site_author: "OpenImage Team"
+site_url: "https://openimage.dev"
+
+# Repository
+repo_name: "yourusername/openimage"
+repo_url: "https://github.com/yourusername/openimage"
+edit_uri: "edit/main/mkdocs/docs/"
+
+# Theme Configuration
+theme:
+  name: "material"
+  logo: "assets/images/logo.png"
+  favicon: "assets/images/favicon.ico"
+  palette:
+    # Light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  
+  font:
+    text: Roboto
+    code: Roboto Mono
+  
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+    - toc.integrate
+
+# Copyright
+copyright: Copyright &copy; 2025 OpenImage Contributors
+
+# Documentation Directory
+docs_dir: "./docs"
+
+# Extensions
+markdown_extensions:
+  # Python Markdown
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      title: On this page
+  
+  # Python Markdown Extensions
+  - pymdownx.arithmatex
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# Plugins
+plugins:
+  - search:
+      lang: en
+
+# Extra Configuration
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/yourusername/openimage
+      name: GitHub Repository
+    - icon: fontawesome/brands/docker
+      link: https://hub.docker.com/r/yourusername/openimage
+      name: Docker Hub
+    - icon: fontawesome/brands/twitter
+      link: https://twitter.com/openimage
+      name: Twitter
+
+# Navigation Structure
+nav:
+  - Home:
+    - Welcome: index.md
+    - Features Overview: features.md
+    - Changelog: changelog.md
+    - Roadmap: roadmap.md
+  
+  - Getting Started:
+    - Installation: install.md
+    - Configuration: config.md
+    - Quick Start: quickstart.md
+    - First Generation: tutorial.md
+  
+  - User Guide:
+    - AI Providers:
+      - Overview: apis.md
+      - Provider Comparison: provider-comparison.md
+      - Getting API Keys: api-keys.md
+    - Features:
+      - Advanced Features: features.md
+      - AI Upscaling: upscaling.md
+      - Style Presets: styles.md
+      - Batch Operations: batch.md
+    - Organization:
+      - Search & Tags: search.md
+      - Collections: collections.md
+      - Metadata: metadata.md
+  
+  - Advanced Usage:
+    - Prompt Engineering: prompt-engineering.md
+    - Custom Workflows: workflows.md
+    - Performance Tuning: performance.md
+    - Integration: integration.md
+  
+  - API Reference:
+    - REST API: api-reference.md
+    - Python Clients: python-api.md
+    - Webhooks: webhooks.md
+  
+  - Development:
+    - Developer Guide: dev.md
+    - Commands: commands.md
+    - Architecture: architecture.md
+    - Database Schema: database.md
+    - Adding Providers: custom-providers.md
+    - Testing: testing.md
+    - Code Style: code-style.md
+  
+  - Deployment:
+    - Production Setup: deployment.md
+    - Docker Deployment: docker-deploy.md
+    - Security: security.md
+    - Monitoring: monitoring.md
+    - Backup & Recovery: backup.md
+  
+  - Help:
+    - Troubleshooting: troubleshooting.md
+    - FAQ: faq.md
+    - Known Issues: known-issues.md
+    - Support: support.md
+  
+  - Contributing:
+    - Contributing Guide: contributing.md
+    - Pull Requests: pull-requests.md
+    - Code of Conduct: code-of-conduct.md
+  
+  - About:
+    - About OpenImage: about.md
+    - License: license.md
+    - Credits: credits.md

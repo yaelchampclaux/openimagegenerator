@@ -1,0 +1,79 @@
+services:
+  # Django Web Application
+  site:
+    container_name: oi_www
+    build:
+      context: . 
+      dockerfile: ./docker/django/Dockerfile
+    ports:
+      - "9510:8001" 
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - DEBUG=True
+      - DATABASE_URL=postgres://openimage_user:your_very_strong_password1234@db:5432/openimage_db
+    depends_on:
+      - db
+    networks:
+      - openimagenetwork
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  db:
+    container_name: oi_db
+    build:
+      context: .
+      dockerfile: ./docker/postgres/Dockerfile
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: openimage_db
+      POSTGRES_USER: openimage_user
+      POSTGRES_PASSWORD: your_very_strong_password1234
+    networks:
+      - openimagenetwork
+    restart: unless-stopped
+
+  # pgAdmin Database Management Tool
+  pgadmin:
+    container_name: oi_pgadmin
+    build:
+      context: .
+      dockerfile: ./docker/pgadmin/Dockerfile
+    ports:
+      - "9511:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@openimage.com
+      PGADMIN_DEFAULT_PASSWORD: pgadminpassword1234!
+    depends_on:
+      - db
+    networks:
+      - openimagenetwork
+    restart: unless-stopped
+
+  # MkDocs Documentation
+  mkdocs:
+    container_name: oi_doc
+    build:
+      context: ./docker/mkdocs
+      dockerfile: Dockerfile
+    ports:
+      - "9512:8000"
+    volumes:
+      - ./mkdocs:/app
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    networks:
+      - openimagenetwork
+
+networks:
+  openimagenetwork:
+    driver: bridge
+
+volumes:
+  postgres_data:
