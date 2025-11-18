@@ -101,7 +101,7 @@ graph TB
 
 ```bash
 git clone https://github.com/yourusername/openimage.git
-cd openimage/oi_v0
+cd openimage/oi_v2
 chmod +x start.sh
 ./start.sh
 ```

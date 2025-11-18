@@ -15,7 +15,7 @@ touch you_image_generator/templatetags/__init__.py
 echo "🔐 Creating .env file..."
 cat > .env << 'EOF'
 # Django Settings
-SECRET_KEY=django-insecure-z9&v=n+=r7$f2v_+t@_itk3d45@#@+1vg&7v@)ofy(4jvpbche
+SECRET_KEY=django-insecure-z9&v=n+=r7$f2v_+t@_itk3d45@ç@+1vg&7v@=ofy~4jvpbche
 DEBUG=True
 ALLOWED_HOSTS=localhost,127.0.0.1
 
@@ -23,7 +23,7 @@ ALLOWED_HOSTS=localhost,127.0.0.1
 DATABASE_URL=postgres://user:password@localhost:5432/dbname
 DB_NAME=openimage_db
 DB_USER=openimage_user
-DB_PASSWORD=your_very_strong_password1234
+DB_PASSWORD=your_very_strong_password
 DB_HOST=db
 DB_PORT=5432
 

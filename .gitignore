@@ -1,6 +1,5 @@
 # Environment variables
 .env
-.env.*
 .env.save
 *.env
 
@@ -57,3 +56,6 @@ dist/
 # Docker volumes (optional)
 postgres_data/
 pgadmin_data/
+
+# backups files
+z_backups_db/

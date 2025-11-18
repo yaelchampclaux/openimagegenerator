@@ -17,7 +17,7 @@ Professional Django application for AI image generation with support for 7 provi
 
 ```bash
 git clone <your-repo>
-cd oi_v0
+cd oi_v2
 
 # Using Docker (recommended)
 docker-compose up -d
@@ -152,7 +152,7 @@ Note: Upscaling adds 10-15 seconds per image.
 ## 🏗️ Project Structure
 
 ```
-oi_v0/
+oi_v2/
 ├── you_image_generator/
 │   ├── ai_clients.py          # 7 AI provider clients
 │   ├── models.py              # GeneratedImage model

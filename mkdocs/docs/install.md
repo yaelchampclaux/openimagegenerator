@@ -44,7 +44,7 @@ Complete installation guide for OpenImage with multiple installation methods.
 ```bash
 # Clone repository
 git clone https://github.com/yourusername/openimage.git
-cd openimage/oi_v0
+cd openimage/oi_v2
 
 # Run automated setup
 chmod +x start.sh
@@ -70,7 +70,7 @@ The script will:
 
 ```bash
 git clone https://github.com/yourusername/openimage.git
-cd openimage/oi_v0
+cd openimage/oi_v2
 ```
 
 #### Step 2: Configure Environment
@@ -222,7 +222,7 @@ Access at: http://localhost:8000
 
 ```bash
 git clone https://github.com/yourusername/openimage.git
-cd openimage/oi_v0
+cd openimage/oi_v2
 ```
 
 ### Step 2: Create Virtual Environment
@@ -259,7 +259,7 @@ pip install -r requirements.txt
 
 ### Step 4: Configure Environment
 
-Create `.env` file in `oi_v0/`:
+Create `.env` file in `oi_v2/`:
 
 ```bash
 # Django Core
