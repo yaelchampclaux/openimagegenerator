@@ -592,10 +592,12 @@ class DeepAIClient(BaseImageGenerationModel):
 
 # === FACTORY ===
 
-def get_api_client(provider: str, api_key: str = None):
+def get_api_client(provider: str, api_key: str = None, account_id: str = None):
     """Factory function"""
     clients = {
         'placeholder': lambda: PlaceholderClient(),
+        'cloudflare': lambda: CloudflareAIClient(api_key, account_id) if api_key and account_id else None,
+        'aihorde': lambda: AIHordeClient(api_key),
         'segmind': lambda: SegmindClient(api_key) if api_key else None,
         'prodia': lambda: ProdiaClient(),
         'pollinations': lambda: PollinationsClient(api_key),
@@ -821,6 +823,184 @@ class ProdiaClient(BaseImageGenerationModel):
         ]
 
 
+
+
+class CloudflareAIClient(BaseImageGenerationModel):
+    """
+    Cloudflare Workers AI - FREE 20-30 images/day
+    Official Cloudflare API, stable and fast
+    """
+    def __init__(self, api_key: str = None, account_id: str = None):
+        super().__init__(api_key)
+        self.account_id = account_id
+        self.base_url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run"
+        self.model_name = "Cloudflare AI"
+        
+        # Available models on Workers AI
+        self.models = {
+            "sdxl": "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+            "dreamshaper": "@cf/lykon/dreamshaper-8-lcm",
+            "stable-diffusion": "@cf/runwayml/stable-diffusion-v1-5-inpainting",
+        }
+
+    def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
+        if options is None:
+            options = {}
+            
+        model_key = options.get('model', 'sdxl')
+        model_id = self.models.get(model_key, self.models['sdxl'])
+        
+        url = f"{self.base_url}/{model_id}"
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "prompt": prompt,
+        }
+        
+        try:
+            logger.info(f"Cloudflare AI: model={model_key}")
+            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            
+            if response.status_code == 200:
+                # Cloudflare returns base64 in response
+                data = response.json()
+                if 'result' in data and 'image' in data['result']:
+                    import base64
+                    image_data = base64.b64decode(data['result']['image'])
+                    return [ImageResult(
+                        image_data=image_data,
+                        prompt=prompt,
+                        model_used=f"Cloudflare {model_key}"
+                    )]
+                else:
+                    raise Exception("No image in response")
+            else:
+                error_text = response.text[:300]
+                logger.error(f"Cloudflare error {response.status_code}: {error_text}")
+                raise Exception(f"Cloudflare API Error: {response.status_code}")
+                
+        except Exception as e:
+            logger.error(f"Cloudflare error: {e}")
+            raise e
+
+    def get_available_models(self):
+        return [
+            {"key": k, "name": k.upper().replace('-', ' ')} 
+            for k in self.models.keys()
+        ]
+
+
+class AIHordeClient(BaseImageGenerationModel):
+    """
+    AI Horde (Stable Horde) - Completely FREE
+    Community-powered, asynchronous generation
+    """
+    def __init__(self, api_key: str = None):
+        super().__init__(api_key or "0000000000")  # Public key
+        self.base_url = "https://stablehorde.net/api/v2"
+        self.model_name = "AI Horde"
+        
+        # Popular community models
+        self.models = {
+            "sdxl": "stable_diffusion_xl",
+            "deliberate": "Deliberate",
+            "dreamshaper": "DreamShaper",
+        }
+
+    def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
+        if options is None:
+            options = {}
+            
+        model_key = options.get('model', 'sdxl')
+        model_name = self.models.get(model_key, self.models['sdxl'])
+        
+        # Step 1: Submit generation request
+        submit_url = f"{self.base_url}/generate/async"
+        
+        headers = {
+            "apikey": self.api_key,
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "prompt": prompt,
+            "params": {
+                "sampler_name": "k_euler",
+                "cfg_scale": options.get('cfg_scale', 7),
+                "steps": 20,
+                "width": options.get('width', 512),
+                "height": options.get('height', 512),
+            },
+            "nsfw": False,
+            "trusted_workers": False,
+            "models": [model_name],
+        }
+        
+        try:
+            logger.info(f"AI Horde: Submitting job, model={model_key}")
+            response = requests.post(submit_url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code != 202:
+                raise Exception(f"Failed to submit: {response.status_code}")
+            
+            data = response.json()
+            job_id = data.get('id')
+            
+            if not job_id:
+                raise Exception("No job ID returned")
+            
+            # Step 2: Poll for completion
+            check_url = f"{self.base_url}/generate/check/{job_id}"
+            status_url = f"{self.base_url}/generate/status/{job_id}"
+            
+            max_wait = 180  # 3 minutes max
+            waited = 0
+            
+            while waited < max_wait:
+                time.sleep(5)
+                waited += 5
+                
+                check_response = requests.get(check_url, timeout=10)
+                check_data = check_response.json()
+                
+                if check_data.get('done'):
+                    # Get final result
+                    status_response = requests.get(status_url, timeout=10)
+                    status_data = status_response.json()
+                    
+                    generations = status_data.get('generations', [])
+                    if generations and 'img' in generations[0]:
+                        image_url = generations[0]['img']
+                        
+                        # Download image
+                        img_response = requests.get(image_url, timeout=30)
+                        return [ImageResult(
+                            image_data=img_response.content,
+                            prompt=prompt,
+                            model_used=f"AI Horde {model_key}"
+                        )]
+                    else:
+                        raise Exception("No image URL in response")
+                
+                logger.info(f"AI Horde: Job {job_id} waiting, {waited}s elapsed")
+            
+            raise Exception("Timeout waiting for generation")
+            
+        except Exception as e:
+            logger.error(f"AI Horde error: {e}")
+            raise e
+
+    def get_available_models(self):
+        return [
+            {"key": k, "name": k.replace('-', ' ').title()} 
+            for k in self.models.keys()
+        ]
+
+
 # AVAILABLE_PROVIDERS
 AVAILABLE_PROVIDERS = {
     'huggingface': {
@@ -838,6 +1018,22 @@ AVAILABLE_PROVIDERS = {
         'requires_api_key': False,
         'quality': 3,
         'speed': 'medium'
+    },
+    'cloudflare': {
+        'name': 'Cloudflare AI',
+        'description': 'FREE - 20-30 images/day',
+        'free': True,
+        'requires_api_key': True,
+        'quality': 4,
+        'speed': 'fast'
+    },
+    'aihorde': {
+        'name': 'AI Horde',
+        'description': 'FREE - Community powered',
+        'free': True,
+        'requires_api_key': False,
+        'quality': 3,
+        'speed': 'slow'
     },
     'pollinations': {
         'name': 'Pollinations.ai',

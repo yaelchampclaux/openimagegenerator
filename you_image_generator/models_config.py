@@ -2,6 +2,64 @@
 # Configuration centralisée des capacités de chaque modèle
 
 MODELS_CONFIG = {
+    'cloudflare': {
+        'name': 'Cloudflare AI',
+        'max_resolution': 1024,
+        'default_resolution': {'width': 1024, 'height': 1024},
+        'aspect_ratios': ['1:1', '16:9', '9:16'],
+        'formats': ['PNG'],
+        'default_format': 'PNG',
+        'supports_negative_prompt': False,
+        'supports_cfg_scale': False,
+        'supports_seed': False,
+        'supports_style_preset': False,
+        'models': {
+            'sdxl': {
+                'name': 'Stable Diffusion XL',
+                'max_resolution': 1024,
+                'default_resolution': {'width': 1024, 'height': 1024},
+            },
+            'dreamshaper': {
+                'name': 'DreamShaper 8 LCM',
+                'max_resolution': 1024,
+                'default_resolution': {'width': 512, 'height': 512},
+            },
+            'stable-diffusion': {
+                'name': 'Stable Diffusion 1.5',
+                'max_resolution': 512,
+                'default_resolution': {'width': 512, 'height': 512},
+            },
+        }
+    },
+    'aihorde': {
+        'name': 'AI Horde',
+        'max_resolution': 1024,
+        'default_resolution': {'width': 512, 'height': 512},
+        'aspect_ratios': ['1:1', '16:9', '9:16', '4:3', '3:4'],
+        'formats': ['PNG'],
+        'default_format': 'PNG',
+        'supports_negative_prompt': False,
+        'supports_cfg_scale': True,
+        'supports_seed': False,
+        'supports_style_preset': False,
+        'models': {
+            'sdxl': {
+                'name': 'Stable Diffusion XL',
+                'max_resolution': 1024,
+                'default_resolution': {'width': 512, 'height': 512},
+            },
+            'deliberate': {
+                'name': 'Deliberate',
+                'max_resolution': 1024,
+                'default_resolution': {'width': 512, 'height': 512},
+            },
+            'dreamshaper': {
+                'name': 'DreamShaper',
+                'max_resolution': 1024,
+                'default_resolution': {'width': 512, 'height': 512},
+            },
+        }
+    },
     'segmind': {
         'name': 'Segmind',
         'max_resolution': 1024,

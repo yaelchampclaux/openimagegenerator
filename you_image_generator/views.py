@@ -64,6 +64,8 @@ def generate_image_api(request):
             pollinations_model = request.POST.get('pollinations_model', 'default')
             segmind_model = request.POST.get('segmind_model', 'sdxl')
             prodia_model = request.POST.get('prodia_model', 'sdxl')
+            cloudflare_model = request.POST.get('cloudflare_model', 'sdxl')
+            aihorde_model = request.POST.get('aihorde_model', 'sdxl')
             if provider not in AVAILABLE_PROVIDERS:
                 return JsonResponse({'error': f'Unknown provider: {provider}'}, status=400)
 
@@ -100,6 +102,11 @@ def generate_image_api(request):
                     return JsonResponse({'error': 'Replicate API Key not configured'}, status=500)
             elif provider == 'huggingface':
                 api_key = getattr(settings, 'HUGGINGFACE_API_KEY', None)
+            elif provider == 'cloudflare':
+                api_key = getattr(settings, 'CLOUDFLARE_API_KEY', None)
+                account_id = getattr(settings, 'CLOUDFLARE_ACCOUNT_ID', None)
+            elif provider == 'aihorde':
+                api_key = getattr(settings, 'AIHORDE_API_KEY', None) or "0000000000"  # Public key
             elif provider == 'segmind':
                 api_key = getattr(settings, 'SEGMIND_API_KEY', None)
             elif provider == 'pollinations':
@@ -110,7 +117,10 @@ def generate_image_api(request):
 
             # Initialize the AI client
             try:
-                ai_client = get_api_client(provider, api_key)
+                if provider == 'cloudflare':
+                    ai_client = get_api_client(provider, api_key, account_id=account_id)
+                else:
+                    ai_client = get_api_client(provider, api_key)
             except ValueError as e:
                 return JsonResponse({'error': str(e)}, status=400)
 
@@ -141,6 +151,10 @@ def generate_image_api(request):
                 generation_options['model'] = segmind_model
             if provider == 'prodia':
                 generation_options['model'] = prodia_model
+            if provider == 'cloudflare':
+                generation_options['model'] = cloudflare_model
+            if provider == 'aihorde':
+                generation_options['model'] = aihorde_model
             
             # Filter out None values
             generation_options = {k: v for k, v in generation_options.items() if v is not None}
@@ -607,6 +621,70 @@ def test_free_apis(request):
         }
     except Exception as e:
         results['subnp'] = {'status': 'error', 'message': str(e)[:100], 'models': []}
+    
+    # --- Test Cloudflare AI ---
+    cf_key = getattr(settings, 'CLOUDFLARE_API_KEY', None)
+    cf_account = getattr(settings, 'CLOUDFLARE_ACCOUNT_ID', None)
+    
+    if cf_key and cf_account:
+        try:
+            headers_cf = {
+                "Authorization": f"Bearer {cf_key}",
+                "Content-Type": "application/json"
+            }
+            r = http_requests.post(
+                f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0",
+                headers=headers_cf,
+                json={"prompt": "test"},
+                timeout=30
+            )
+            if r.status_code == 200:
+                results['cloudflare'] = {
+                    'status': 'ok',
+                    'message': 'Working (20-30 images/day)',
+                    'models': ['sdxl', 'dreamshaper', 'stable-diffusion']
+                }
+            else:
+                results['cloudflare'] = {
+                    'status': 'error',
+                    'message': f'HTTP {r.status_code}',
+                    'models': []
+                }
+        except Exception as e:
+            results['cloudflare'] = {'status': 'error', 'message': str(e)[:100], 'models': []}
+    else:
+        results['cloudflare'] = {'status': 'skipped', 'message': 'API key or Account ID not configured', 'models': []}
+    
+    # --- Test AI Horde ---
+    try:
+        headers_horde = {
+            "apikey": "0000000000",
+            "Content-Type": "application/json"
+        }
+        r = http_requests.post(
+            "https://stablehorde.net/api/v2/generate/async",
+            headers=headers_horde,
+            json={
+                "prompt": "test",
+                "params": {"steps": 10, "width": 64, "height": 64},
+                "models": ["stable_diffusion_xl"],
+            },
+            timeout=15
+        )
+        if r.status_code == 202:
+            results['aihorde'] = {
+                'status': 'ok',
+                'message': 'Working (community powered, slow)',
+                'models': ['sdxl', 'deliberate', 'dreamshaper']
+            }
+        else:
+            results['aihorde'] = {
+                'status': 'error',
+                'message': f'HTTP {r.status_code}',
+                'models': []
+            }
+    except Exception as e:
+        results['aihorde'] = {'status': 'error', 'message': str(e)[:100], 'models': []}
     
     return JsonResponse({'results': results})
 
