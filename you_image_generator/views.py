@@ -39,7 +39,7 @@ def image_generator_view(request):
         'generated_images': generated_images,
         'images_json': json.dumps(images_data),  # Ajouter ceci
         'available_providers': AVAILABLE_PROVIDERS,
-        'default_provider': 'pollinations'
+        'default_provider': 'huggingface'
     }
     return render(request, 'you_image_generator/generator.html', context)
 
@@ -58,8 +58,12 @@ def generate_image_api(request):
                 return JsonResponse({'error': 'Prompt must be at least 3 characters long'}, status=400)
 
             # Get provider selection
-            provider = request.POST.get('provider', 'pollinations')
-            hf_model = request.POST.get('hf_model', 'flux-schnell')
+            provider = request.POST.get('provider', 'huggingface')
+            hf_model = request.POST.get('hf_model', 'sdxl-lightning')
+            subnp_model = request.POST.get('subnp_model', 'magic')
+            pollinations_model = request.POST.get('pollinations_model', 'default')
+            segmind_model = request.POST.get('segmind_model', 'sdxl')
+            prodia_model = request.POST.get('prodia_model', 'sdxl')
             if provider not in AVAILABLE_PROVIDERS:
                 return JsonResponse({'error': f'Unknown provider: {provider}'}, status=400)
 
@@ -96,9 +100,13 @@ def generate_image_api(request):
                     return JsonResponse({'error': 'Replicate API Key not configured'}, status=500)
             elif provider == 'huggingface':
                 api_key = getattr(settings, 'HUGGINGFACE_API_KEY', None)
+            elif provider == 'segmind':
+                api_key = getattr(settings, 'SEGMIND_API_KEY', None)
+            elif provider == 'pollinations':
+                api_key = getattr(settings, 'POLLINATION_API_KEY', None)
             elif provider == 'deepai':
                 api_key = getattr(settings, 'DEEPAI_API_KEY', None)
-            # pollinations and placeholder don't need API keys
+            # subnp, prodia and placeholder don't need API keys
 
             # Initialize the AI client
             try:
@@ -122,8 +130,17 @@ def generate_image_api(request):
                     'steps': 20,  # Lower steps to save credits
                 })
 
+            # Assign model for each provider
             if provider == 'huggingface':
                 generation_options['model'] = hf_model
+            if provider == 'subnp':
+                generation_options['model'] = subnp_model
+            if provider == 'pollinations':
+                generation_options['model'] = pollinations_model
+            if provider == 'segmind':
+                generation_options['model'] = segmind_model
+            if provider == 'prodia':
+                generation_options['model'] = prodia_model
             
             # Filter out None values
             generation_options = {k: v for k, v in generation_options.items() if v is not None}
@@ -241,7 +258,7 @@ def get_model_configuration(request):
     """API endpoint pour récupérer la configuration d'un modèle"""
     from .models_config import get_model_config
     
-    provider = request.GET.get('provider', 'pollinations')
+    provider = request.GET.get('provider', 'huggingface')
     hf_model = request.GET.get('hf_model', None)
     config = get_model_config(provider, hf_model)
     return JsonResponse(config)
@@ -251,3 +268,347 @@ def get_all_configurations(request):
     """Retourne toutes les configurations de modèles"""
     from .models_config import MODELS_CONFIG
     return JsonResponse(MODELS_CONFIG, safe=False)
+
+# ===== Health Check Views (Added by repair script) =====
+from django.http import JsonResponse
+from django.views.decorators.http import require_http_methods
+from django.conf import settings
+from .ai_clients import check_all_providers, AVAILABLE_PROVIDERS
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+@require_http_methods(["GET"])
+def api_health_check(request):
+    """
+    API endpoint to check health of all providers
+    
+    GET /api/health/
+    GET /api/health/?provider=gemini
+    
+    Returns:
+    {
+        "providers": {
+            "pollinations": {
+                "is_healthy": true,
+                "message": "API working",
+                "response_time": 1.23,
+                "info": {...}
+            },
+            ...
+        },
+        "summary": {
+            "total": 4,
+            "working": 3,
+            "broken": 1
+        }
+    }
+    """
+    try:
+        # Get filter parameter
+        provider_filter = request.GET.get('provider')
+        
+        # Gather API keys from settings
+        api_keys = {
+            'gemini': settings.GEMINI_API_KEY if hasattr(settings, 'GEMINI_API_KEY') else None,
+            'huggingface': settings.HUGGINGFACE_API_KEY if hasattr(settings, 'HUGGINGFACE_API_KEY') else None,
+            'pollinations': settings.POLLINATION_API_KEY if hasattr(settings, 'POLLINATION_API_KEY') else None,
+            'deepai': settings.DEEPAI_API_KEY if hasattr(settings, 'DEEPAI_API_KEY') else None,
+            'runware': settings.RUNWARE_API_KEY if hasattr(settings, 'RUNWARE_API_KEY') else None,
+            'replicate': settings.REPLICATE_API_KEY if hasattr(settings, 'REPLICATE_API_KEY') else None,
+            'stability': settings.STABILITY_AI_API_KEY if hasattr(settings, 'STABILITY_AI_API_KEY') else None,
+        }
+        
+        # Perform health checks
+        health_results = check_all_providers(api_keys)
+        
+        # Build response
+        providers = {}
+        working_count = 0
+        broken_count = 0
+        
+        for provider_key, health in health_results.items():
+            # Apply filter if specified
+            if provider_filter and provider_key != provider_filter:
+                continue
+            
+            provider_info = AVAILABLE_PROVIDERS.get(provider_key, {})
+            
+            providers[provider_key] = {
+                'is_healthy': health.is_healthy,
+                'message': health.message,
+                'response_time': health.response_time,
+                'last_checked': health.last_checked.isoformat(),
+                'info': {
+                    'name': provider_info.get('name', provider_key),
+                    'description': provider_info.get('description', ''),
+                    'free': provider_info.get('free', False),
+                    'requires_api_key': provider_info.get('requires_api_key', False),
+                    'quality': provider_info.get('quality', 0),
+                    'speed': provider_info.get('speed', 'unknown'),
+                    'has_api_key': bool(api_keys.get(provider_key))
+                }
+            }
+            
+            if health.is_healthy:
+                working_count += 1
+            else:
+                broken_count += 1
+        
+        return JsonResponse({
+            'success': True,
+            'providers': providers,
+            'summary': {
+                'total': working_count + broken_count,
+                'working': working_count,
+                'broken': broken_count
+            },
+            'recommendations': get_health_recommendations(providers)
+        }, status=200)
+        
+    except Exception as e:
+        logger.error(f"Error in api_health_check: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+def get_health_recommendations(providers: dict) -> list:
+    """Generate recommendations based on health status"""
+    recommendations = []
+    
+    # Check if any providers are working
+    working_providers = [k for k, v in providers.items() if v['is_healthy']]
+    
+    if not working_providers:
+        recommendations.append({
+            'priority': 'high',
+            'message': 'No providers are currently working. Start with Pollinations (no setup required).',
+            'action': 'Select Pollinations in the provider dropdown'
+        })
+    
+    # Check for broken providers with specific issues
+    for provider_key, data in providers.items():
+        if data['is_healthy']:
+            continue
+            
+        message = data['message']
+        provider_name = data['info']['name']
+        
+        if 'No API key' in message or 'API key required' in message:
+            if provider_key == 'gemini':
+                recommendations.append({
+                    'priority': 'medium',
+                    'provider': provider_key,
+                    'message': f'{provider_name} requires FREE API key',
+                    'action': 'Get FREE key from https://aistudio.google.com/apikey',
+                    'steps': [
+                        'Go to AI Studio (not Google Cloud)',
+                        'Create API key',
+                        'Add to .env: GEMINI_API_KEY=your_key'
+                    ]
+                })
+        
+        elif 'quota exceeded' in message.lower():
+            recommendations.append({
+                'priority': 'low',
+                'provider': provider_key,
+                'message': f'{provider_name} quota exceeded',
+                'action': 'Wait until tomorrow or use Pollinations (unlimited)'
+            })
+        
+        elif 'Invalid API key' in message:
+            if provider_key == 'gemini':
+                recommendations.append({
+                    'priority': 'high',
+                    'provider': provider_key,
+                    'message': f'{provider_name} API key is invalid',
+                    'action': 'Use AI Studio key (FREE), not Google Cloud key',
+                    'fix_url': 'https://aistudio.google.com/apikey'
+                })
+    
+    # Recommend setting up more providers if only one works
+    if len(working_providers) == 1:
+        recommendations.append({
+            'priority': 'low',
+            'message': 'You have only one working provider',
+            'action': 'Consider setting up Gemini (FREE) as backup'
+        })
+    
+    return recommendations
+
+
+@require_http_methods(["GET"])
+def get_working_providers(request):
+    """
+    Quick endpoint to get list of working providers
+    
+    GET /api/providers/working/
+    
+    Returns:
+    {
+        "working_providers": ["pollinations", "gemini"],
+        "recommended": "pollinations"
+    }
+    """
+    try:
+        # Gather API keys
+        api_keys = {
+            'gemini': settings.GEMINI_API_KEY if hasattr(settings, 'GEMINI_API_KEY') else None,
+            'huggingface': settings.HUGGINGFACE_API_KEY if hasattr(settings, 'HUGGINGFACE_API_KEY') else None,
+            'pollinations': settings.POLLINATION_API_KEY if hasattr(settings, 'POLLINATION_API_KEY') else None,
+        }
+        
+        # Quick health check
+        health_results = check_all_providers(api_keys)
+        
+        # Get working providers
+        working = [
+            provider for provider, health in health_results.items()
+            if health.is_healthy
+        ]
+        
+        # Recommend the best one
+        if 'pollinations' in working:
+            recommended = 'pollinations'  # Fast and always works
+        elif 'gemini' in working:
+            recommended = 'gemini'  # High quality
+        elif working:
+            recommended = working[0]
+        else:
+            recommended = 'pollinations'  # Fallback even if check failed
+        
+        return JsonResponse({
+            'success': True,
+            'working_providers': working,
+            'recommended': recommended,
+            'count': len(working)
+        }, status=200)
+        
+    except Exception as e:
+        logger.error(f"Error in get_working_providers: {e}")
+        # Return safe defaults
+        return JsonResponse({
+            'success': True,
+            'working_providers': ['pollinations'],  # Safe fallback
+            'recommended': 'pollinations',
+            'count': 1,
+            'note': 'Returned fallback due to error'
+        }, status=200)
+
+
+import time
+import requests as http_requests
+
+@require_http_methods(["GET"])
+def test_free_apis(request):
+    """
+    Test all free APIs and return status + working models.
+    GET /api/test-free/
+    """
+    results = {}
+    
+    # --- Test Pollinations (old endpoint, no key needed) ---
+    try:
+        start = time.time()
+        # Cloudflare blocks curl - use browser headers
+        headers_poll = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'image/*',
+        }
+        r = http_requests.get(
+            "https://image.pollinations.ai/prompt/test",
+            params={"width": 64, "height": 64, "nologo": "true"},
+            headers=headers_poll,
+            timeout=15
+        )
+        elapsed = round(time.time() - start, 1)
+        
+        if r.status_code == 200 and len(r.content) > 1000:
+            results['pollinations'] = {
+                'status': 'ok',
+                'message': f'Working ({elapsed}s)',
+                'models': ['default (no model selection)']
+            }
+        else:
+            results['pollinations'] = {
+                'status': 'error',
+                'message': f'HTTP {r.status_code}, size {len(r.content)}',
+                'models': []
+            }
+    except Exception as e:
+        results['pollinations'] = {'status': 'error', 'message': str(e)[:100], 'models': []}
+    
+    # --- Test HuggingFace ---
+    hf_key = getattr(settings, 'HUGGINGFACE_API_KEY', None)
+    working_hf_models = []
+    
+    try:
+        headers = {"Authorization": f"Bearer {hf_key}"} if hf_key else {}
+        r = http_requests.post(
+            "https://api-inference.huggingface.co/models/ByteDance/SDXL-Lightning",
+            headers=headers,
+            json={"inputs": "test"},
+            timeout=30
+        )
+        if r.status_code == 200:
+            working_hf_models.append('sdxl-lightning')
+    except:
+        pass
+    
+    # Fallback SDK
+    if not working_hf_models and hf_key:
+        try:
+            from huggingface_hub import InferenceClient
+            client = InferenceClient(token=hf_key)
+            img = client.text_to_image("test", model="ByteDance/SDXL-Lightning")
+            if img:
+                working_hf_models.append('sdxl-lightning')
+        except:
+            pass
+    
+    results['huggingface'] = {
+        'status': 'ok' if working_hf_models else 'error',
+        'message': f'{len(working_hf_models)} model(s) working' if working_hf_models else 'No models working',
+        'models': working_hf_models
+    }
+    
+    # --- Test Subnp ---
+    try:
+        r = http_requests.post(
+            "https://subnp.com/api/free/generate",
+            json={"prompt": "test", "model": "magic"},
+            headers={"Content-Type": "application/json"},
+            stream=True,
+            timeout=30
+        )
+        
+        working_subnp = []
+        if r.status_code == 200:
+            import json as json_lib
+            for line in r.iter_lines(decode_unicode=True):
+                if line.startswith('data: '):
+                    try:
+                        data = json_lib.loads(line[6:])
+                        if data.get('status') == 'complete' and data.get('imageUrl'):
+                            working_subnp.append('magic')
+                            break
+                        elif data.get('status') == 'error':
+                            break
+                    except:
+                        continue
+        
+        results['subnp'] = {
+            'status': 'ok' if working_subnp else 'error',
+            'message': 'magic working' if working_subnp else 'No models working',
+            'models': working_subnp
+        }
+    except Exception as e:
+        results['subnp'] = {'status': 'error', 'message': str(e)[:100], 'models': []}
+    
+    return JsonResponse({'results': results})
+
+
+

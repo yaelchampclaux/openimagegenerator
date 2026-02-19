@@ -16,6 +16,8 @@ python-decouple>=3.8    # Environment variables management
 # HTTP & API Clients
 requests>=2.31.0        # HTTP library for API calls
 urllib3>=2.1.0          # HTTP client
+google-genai>=1.0.0     # Google Gemini SDK
+huggingface_hub>=0.20.0 # HuggingFace SDK
 
 # Image Processing
 Pillow>=10.0.0         # Core image library

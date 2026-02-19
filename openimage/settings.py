@@ -170,11 +170,13 @@ hostname, _, ips = socket.gethostbyname_ex(socket.gethostname())
 INTERNAL_IPS += ['.'.join(ip.split('.')[:-1] + ['1']) for ip in ips]
 
 # === FREE APIs ===
-GEMINI_API_KEY = config('GEMINI_API_KEY')
+POLLINATION_API_KEY = os.getenv('POLLINATION_API_KEY')
 HUGGINGFACE_API_KEY = config('HUGGINGFACE_API_KEY')
-DEEPAI_API_KEY = config('DEEPAI_API_KEY')
+SEGMIND_API_KEY = os.getenv('SEGMIND_API_KEY')
 
 # === PAID APIs ===
+DEEPAI_API_KEY = config('DEEPAI_API_KEY')
+GEMINI_API_KEY = config('GEMINI_API_KEY')
 STABILITY_AI_API_KEY = config('STABILITY_AI_API_KEY')
 RUNWARE_API_KEY = config('RUNWARE_API_KEY')
 REPLICATE_API_KEY = config('REPLICATE_API_KEY')

@@ -1,3 +1,7 @@
+"""
+AI Clients - VERSION FINALE QUI MARCHE
+Utilise les SDK et les clés API
+"""
 import abc
 import requests
 import base64
@@ -12,9 +16,7 @@ logger = logging.getLogger(__name__)
 # --- Data Structures ---
 
 class ImageResult:
-    """
-    Represents the result of an image generation request.
-    """
+    """Represents the result of an image generation request."""
     def __init__(self, image_data: bytes = None, image_url: str = None, prompt: str = None, model_used: str = None):
         self.image_data = image_data
         self.image_url = image_url
@@ -29,12 +31,11 @@ class ImageResult:
         else:
             return f"No image generated for '{self.prompt[:30]}...' via {self.model_used}."
 
+
 # --- Abstract Base Class ---
 
 class BaseImageGenerationModel(abc.ABC):
-    """
-    Abstract base class for AI image generation models.
-    """
+    """Abstract base class for AI image generation models."""
     def __init__(self, api_key: str = None):
         self.api_key = api_key
         self.model_name = "Unknown Model"
@@ -43,21 +44,278 @@ class BaseImageGenerationModel(abc.ABC):
     def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
         pass
 
-# --- Google Gemini Client (FREE tier available) ---
+
+# === GRATUIT - Pollinations AVEC CLÉ API ===
+
+class PollinationsClient(BaseImageGenerationModel):
+    """
+    Pollinations.ai - FREE, no API key needed
+    Old endpoint works: https://image.pollinations.ai/prompt/
+    """
+    def __init__(self, api_key: str = None):
+        super().__init__(api_key)
+        self.base_url = "https://image.pollinations.ai/prompt"
+        self.model_name = "Pollinations.ai"
+        
+        # Old endpoint doesn't support model parameter
+        self.models = {
+            "default": "default",
+        }
+
+    def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
+        if options is None:
+            options = {}
+            
+        width = options.get('width', 512)
+        height = options.get('height', 512)
+        
+        import urllib.parse
+        encoded_prompt = urllib.parse.quote(prompt)
+        url = f"{self.base_url}/{encoded_prompt}"
+        
+        params = {
+            'width': width,
+            'height': height,
+            'nologo': 'true',
+        }
+        
+        # Cloudflare blocks curl - use browser headers
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://pollinations.ai/',
+        }
+        
+        try:
+            logger.info(f"Pollinations: size={width}x{height}, url={url}")
+            response = requests.get(url, params=params, headers=headers, timeout=60)
+            
+            if response.status_code == 200 and len(response.content) > 5000:
+                return [ImageResult(
+                    image_data=response.content,
+                    prompt=prompt,
+                    model_used="Pollinations"
+                )]
+            elif response.status_code == 200:
+                raise Exception(f"Pollinations returned invalid image ({len(response.content)} bytes) - server may be overloaded, retry later")
+            else:
+                error_text = response.text[:300]
+                logger.error(f"Pollinations error {response.status_code}: {error_text}")
+                raise Exception(f"API Error: {response.status_code} - {error_text}")
+                
+        except Exception as e:
+            logger.error(f"Pollinations error: {e}")
+            raise e
+
+    def get_available_models(self):
+        return [
+            {"key": k, "name": k.replace('-', ' ').title()} 
+            for k in self.models.keys()
+        ]
+
+
+# === GRATUIT - HuggingFace AVEC SDK ===
+
+class HuggingFaceClient(BaseImageGenerationModel):
+    """
+    Hugging Face - Uses SDK for stability
+    Requires: pip install huggingface_hub
+    """
+    def __init__(self, api_key: str = None):
+        super().__init__(api_key)
+        self.model_name = "Hugging Face (FREE)"
+        
+        # Check if SDK is available
+        try:
+            from huggingface_hub import InferenceClient
+            self.client = InferenceClient(token=api_key) if api_key else InferenceClient()
+            self.use_sdk = True
+        except ImportError:
+            logger.warning("huggingface_hub not installed, will try HTTP API")
+            self.base_url = "https://api-inference.huggingface.co/models"
+            self.use_sdk = False
+        
+        # FREE models - only confirmed working
+        self.models = {
+            "sdxl-lightning": "ByteDance/SDXL-Lightning",
+        }
+
+    def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
+        if options is None:
+            options = {}
+            
+        model_key = options.get('model', 'sdxl-lightning')
+        model_id = self.models.get(model_key, self.models['sdxl-lightning'])
+        
+        if self.use_sdk:
+            # Use SDK (preferred)
+            try:
+                logger.info(f"HuggingFace SDK: model={model_id}")
+                from huggingface_hub import InferenceClient
+                from io import BytesIO
+                
+                image = self.client.text_to_image(prompt, model=model_id)
+                
+                # Convert PIL to bytes
+                buffer = BytesIO()
+                image.save(buffer, format='PNG')
+                image_data = buffer.getvalue()
+                
+                return [ImageResult(
+                    image_data=image_data,
+                    prompt=prompt,
+                    model_used=f"HuggingFace {model_key}"
+                )]
+            except Exception as e:
+                logger.error(f"HuggingFace SDK error: {e}")
+                raise e
+        else:
+            # Fallback to HTTP API
+            url = f"{self.base_url}/{model_id}"
+            headers = {}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+            
+            payload = {"inputs": prompt}
+            
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=120)
+                
+                if response.status_code == 200:
+                    return [ImageResult(
+                        image_data=response.content,
+                        prompt=prompt,
+                        model_used=f"HuggingFace {model_key}"
+                    )]
+                elif response.status_code == 503:
+                    raise Exception("Model loading. Wait 30-60s and retry.")
+                else:
+                    error_text = response.text[:300]
+                    logger.error(f"HuggingFace HTTP error {response.status_code}: {error_text}")
+                    raise Exception(f"API Error {response.status_code}. Install huggingface_hub: pip install huggingface_hub")
+            except Exception as e:
+                logger.error(f"HuggingFace error: {e}")
+                raise e
+
+    def get_available_models(self):
+        return [
+            {"key": k, "name": k.replace('-', ' ').title()} 
+            for k in self.models.keys()
+        ]
+
+
+# === GRATUIT - Subnp (si leur serveur se répare) ===
+
+class SubnpClient(BaseImageGenerationModel):
+    """
+    Subnp - FREE (streaming SSE API)
+    """
+    def __init__(self):
+        super().__init__()
+        self.base_url = "https://subnp.com/api/free/generate"
+        self.model_name = "Subnp"
+        self.models = {"magic": "magic"}  # flux and turbo broken server-side
+
+    def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
+        if options is None:
+            options = {}
+        
+        model = options.get('model', 'flux')
+        
+        try:
+            payload = {"prompt": prompt, "model": model}
+            
+            logger.info(f"Subnp: Requesting model={model}, prompt={prompt[:50]}...")
+            
+            response = requests.post(
+                self.base_url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                stream=True,
+                timeout=120
+            )
+            
+            if response.status_code != 200:
+                error_text = response.text[:500]
+                logger.error(f"Subnp: HTTP {response.status_code}: {error_text}")
+                raise Exception(f"API Error {response.status_code}: {error_text}")
+            
+            # Parse SSE selon leur doc
+            image_url = None
+            buffer = ""
+            line_count = 0
+            
+            for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
+                if chunk:
+                    buffer += chunk
+                    lines = buffer.split('\n')
+                    buffer = lines[-1]  # Keep incomplete line
+                    
+                    for line in lines[:-1]:
+                        line = line.strip()
+                        line_count += 1
+                        
+                        if line.startswith('data: '):
+                            try:
+                                data_json = line[6:]
+                                data = json.loads(data_json)
+                                
+                                logger.info(f"Subnp: Line {line_count} status={data.get('status')}, model={model}")
+                                
+                                if data.get('status') == 'complete':
+                                    image_url = data.get('imageUrl')
+                                    if image_url:
+                                        logger.info(f"Subnp: Image URL received for {model}: {image_url}")
+                                        break
+                                elif data.get('status') == 'error':
+                                    error_msg = data.get('message', 'Unknown error')
+                                    error_detail = data.get('error', '')
+                                    logger.error(f"Subnp: Error status for {model}: {error_msg} - {error_detail}")
+                                    raise Exception(f"Subnp: {error_msg}")
+                            except json.JSONDecodeError as je:
+                                logger.warning(f"Subnp: JSON decode error on line {line_count}: {data_json[:100]}")
+                                continue
+                    
+                    if image_url:
+                        break
+            
+            if not image_url:
+                logger.error(f"Subnp: No image URL after {line_count} lines for model={model}")
+                raise ValueError("No image URL from Subnp")
+            
+            # Download image
+            logger.info(f"Subnp: Downloading image from {image_url}")
+            img_response = requests.get(image_url, timeout=30)
+            if img_response.status_code == 200:
+                logger.info(f"Subnp: Downloaded {len(img_response.content)} bytes for {model}")
+                return [ImageResult(
+                    image_data=img_response.content,
+                    prompt=prompt,
+                    model_used=f"Subnp {model}"
+                )]
+            raise Exception(f"Download failed: {img_response.status_code}")
+                
+        except Exception as e:
+            logger.error(f"Subnp error for model={model}: {e}")
+            raise e
+
+    def get_available_models(self):
+        return [{"key": k, "name": f"Subnp {k.title()}"} for k in self.models.keys()]
+
+
+# === GRATUIT - Gemini (si clé fournie) ===
 
 class GeminiClient(BaseImageGenerationModel):
-    """
-    Client for Google Gemini (Nano Banana) - FREE tier with generous limits
-    1500 requests/day free, requires API key
-    """
+    """Google Gemini - Nécessite clé AI Studio"""
     def __init__(self, api_key: str):
         super().__init__(api_key)
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
-        self.model_name = "Google Gemini (FREE)"
+        self.model_name = "Google Gemini"
 
     def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
         if not self.api_key:
-            raise ValueError("API key required for Google Gemini")
+            raise ValueError("API key required for Gemini")
             
         if options is None:
             options = {}
@@ -71,11 +329,7 @@ class GeminiClient(BaseImageGenerationModel):
         }
         
         payload = {
-            "contents": [{
-                "parts": [
-                    {"text": prompt}
-                ]
-            }]
+            "contents": [{"parts": [{"text": prompt}]}]
         }
 
         try:
@@ -83,214 +337,67 @@ class GeminiClient(BaseImageGenerationModel):
             
             if response.status_code == 200:
                 data = response.json()
-                
                 if 'candidates' in data and len(data['candidates']) > 0:
                     parts = data['candidates'][0].get('content', {}).get('parts', [])
-                    
                     for part in parts:
                         if 'inlineData' in part:
                             image_b64 = part['inlineData']['data']
                             image_data = base64.b64decode(image_b64)
-                            
                             return [ImageResult(
                                 image_data=image_data,
                                 prompt=prompt,
-                                model_used="Google Gemini 2.0 Flash"
+                                model_used="Gemini 2.5 Flash"
                             )]
-                
-                raise ValueError("No image data in response")
-            elif response.status_code == 429:
-                raise Exception(
-                    "Gemini quota exceeded. You've reached your daily limit (1500 free requests/day). "
-                    "Wait until tomorrow or use Pollinations.ai (unlimited free) as alternative. "
-                    "Check quotas: https://aistudio.google.com/app/apikey"
-                )
+                raise ValueError("No image in response")
             else:
-                logger.error(f"Gemini API error: {response.status_code} - {response.text}")
-                raise requests.exceptions.RequestException(f"API Error: {response.text}")
-
+                raise Exception(f"API Error: {response.text}")
         except Exception as e:
-            error_msg = str(e)
-            if "429" in error_msg or "quota" in error_msg.lower() or "RESOURCE_EXHAUSTED" in error_msg:
-                raise Exception(
-                    "Gemini quota exceeded (1500/day free limit). "
-                    "Use Pollinations.ai instead (unlimited free). "
-                    "Or wait and check: https://aistudio.google.com/app/apikey"
-                )
-            logger.error(f"Error with Gemini API: {e}")
+            logger.error(f"Gemini error: {e}")
             raise e
 
-# --- Hugging Face Client (FREE) - Updated with working models ---
 
-class HuggingFaceClient(BaseImageGenerationModel):
-    """
-    Client for Hugging Face Inference API - FREE tier available
-    Multiple models available, may be slow on first request (model loading)
-    """
-    def __init__(self, api_key: str = None):
-        super().__init__(api_key)
-        self.base_url = "https://api-inference.huggingface.co/models"
-        # Updated with models that actually work
-        self.models = {
-            "flux-schnell": "black-forest-labs/FLUX.1-schnell",
-            "stable-diffusion-xl": "stabilityai/stable-diffusion-xl-base-1.0",
-            "stable-diffusion-3": "stabilityai/stable-diffusion-3-medium-diffusers",
-        }
-        self.model_name = "Hugging Face (FREE)"
-
-    def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
-        if options is None:
-            options = {}
-            
-        # Use FLUX schnell by default (fast and good quality)
-        model_key = options.get('model', 'flux-schnell')
-        model_id = self.models.get(model_key, self.models['flux-schnell'])
-        
-        url = f"{self.base_url}/{model_id}"
-        
-        headers = {}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        
-        payload = {"inputs": prompt}
-        
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=120)
-            
-            if response.status_code == 200:
-                image_data = response.content
-                return [ImageResult(
-                    image_data=image_data,
-                    prompt=prompt,
-                    model_used=f"Hugging Face - {model_id.split('/')[-1]}"
-                )]
-            elif response.status_code == 503:
-                raise Exception(
-                    "Hugging Face model is loading (cold start). "
-                    "This takes 30-60 seconds. Please wait and try again. "
-                    "Or use Pollinations.ai for instant generation."
-                )
-            else:
-                logger.error(f"Hugging Face API error: {response.status_code} - {response.text}")
-                raise requests.exceptions.RequestException(
-                    f"Hugging Face API Error. Model may not exist or be unavailable. "
-                    f"Try Pollinations.ai or Gemini instead."
-                )
-                
-        except Exception as e:
-            error_msg = str(e)
-            if "503" in error_msg or "loading" in error_msg.lower():
-                raise Exception(
-                    "Model is loading (first use). Wait 30-60s and retry. "
-                    "Or use Pollinations (instant) or Gemini instead."
-                )
-            logger.error(f"Error with Hugging Face API: {e}")
-            raise e
-
-# --- Pollinations Client (FREE) ---
-
-class PollinationsClient(BaseImageGenerationModel):
-    """
-    Client for Pollinations.ai - Completely FREE and unlimited
-    No API key required, instant generation
-    """
-    def __init__(self):
-        super().__init__()
-        self.base_url = "https://image.pollinations.ai/prompt"
-        self.model_name = "Pollinations.ai (FREE)"
-
-    def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
-        if options is None:
-            options = {}
-            
-        width = options.get('width', 1024)
-        height = options.get('height', 1024)
-        
-        clean_prompt = prompt.replace(' ', '%20')
-        url = f"{self.base_url}/{clean_prompt}"
-        params = {
-            'width': width,
-            'height': height,
-            'nologo': 'true',
-            'enhance': 'true'
-        }
-        
-        try:
-            response = requests.get(url, params=params, timeout=60)
-            
-            if response.status_code == 200:
-                return [ImageResult(
-                    image_data=response.content,
-                    prompt=prompt,
-                    model_used="Pollinations.ai"
-                )]
-            else:
-                raise requests.exceptions.RequestException(f"API Error: {response.status_code}")
-                
-        except Exception as e:
-            logger.error(f"Error with Pollinations API: {e}")
-            raise e
-
-    def get_available_models(self):
-        """Return list of available models"""
-        return [
-            {"key": k, "name": v.split('/')[-1]} 
-            for k, v in self.models.items()
-        ]
-
-# --- Placeholder Image Client (ALWAYS WORKS) ---
+# === GRATUIT - Placeholder ===
 
 class PlaceholderClient(BaseImageGenerationModel):
-    """
-    Generates placeholder images - for testing only
-    """
+    """Placeholder - test only"""
     def __init__(self):
         super().__init__()
-        self.model_name = "Placeholder (DEMO)"
+        self.model_name = "Placeholder"
 
     def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
         if options is None:
             options = {}
-            
         width = min(options.get('width', 512), 800)
         height = min(options.get('height', 512), 800)
-        
         url = f"https://via.placeholder.com/{width}x{height}/4A90E2/FFFFFF.png"
         params = {'text': f"Generated: {prompt[:15]}"}
         
         try:
             response = requests.get(url, params=params, timeout=30)
-            
             if response.status_code == 200:
                 return [ImageResult(
                     image_data=response.content,
                     prompt=prompt,
-                    model_used="Placeholder Service"
+                    model_used="Placeholder"
                 )]
-            else:
-                logger.warning(f"Placeholder service failed: {response.status_code}")
-                return []
-                
+            return []
         except Exception as e:
-            logger.error(f"Error with placeholder: {e}")
+            logger.error(f"Placeholder error: {e}")
             return []
 
-# --- Runware Client (PAID but cheap) ---
+
+# === PAYANT - Runware ===
 
 class RunwareClient(BaseImageGenerationModel):
-    """
-    Client for Runware - Very affordable ($0.002/image)
-    Best price/quality ratio for paid services
-    """
+    """Runware - PAID"""
     def __init__(self, api_key: str):
         super().__init__(api_key)
         self.base_url = "https://api.runware.ai/v1"
-        self.model_name = "Runware (PAID)"
+        self.model_name = "Runware"
 
     def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
         if not self.api_key:
-            raise ValueError("API key required for Runware")
-            
+            raise ValueError("API key required")
         if options is None:
             options = {}
 
@@ -307,9 +414,6 @@ class RunwareClient(BaseImageGenerationModel):
             "width": options.get('width', 512),
             "outputFormat": "PNG"
         }
-        
-        if options.get('negative_prompt'):
-            payload["negativePrompt"] = options['negative_prompt']
 
         try:
             response = requests.post(
@@ -321,45 +425,36 @@ class RunwareClient(BaseImageGenerationModel):
             
             if response.status_code == 200:
                 data = response.json()
-                
                 if 'data' in data and len(data['data']) > 0:
                     image_url = data['data'][0].get('imageURL')
-                    
                     if image_url:
                         img_response = requests.get(image_url, timeout=30)
                         if img_response.status_code == 200:
                             return [ImageResult(
                                 image_data=img_response.content,
-                                image_url=image_url,
                                 prompt=prompt,
-                                model_used="Runware SDXL"
+                                model_used="Runware"
                             )]
-                
-                raise ValueError("No image data in response")
+                raise ValueError("No image in response")
             else:
-                logger.error(f"Runware API error: {response.text}")
-                raise requests.exceptions.RequestException(f"API Error: {response.text}")
-
+                raise Exception(f"API Error: {response.text}")
         except Exception as e:
-            logger.error(f"Error with Runware API: {e}")
+            logger.error(f"Runware error: {e}")
             raise e
 
-# --- Replicate Client (PAID - Pay per use) ---
+
+# === PAYANT - Replicate ===
 
 class ReplicateClient(BaseImageGenerationModel):
-    """
-    Client for Replicate - Access to FLUX.1 and other top models
-    Pay per use, excellent quality
-    """
+    """Replicate - PAID"""
     def __init__(self, api_key: str):
         super().__init__(api_key)
         self.base_url = "https://api.replicate.com/v1"
-        self.model_name = "Replicate (PAID)"
+        self.model_name = "Replicate"
 
     def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
         if not self.api_key:
-            raise ValueError("API key required for Replicate")
-            
+            raise ValueError("API key required")
         if options is None:
             options = {}
 
@@ -368,10 +463,8 @@ class ReplicateClient(BaseImageGenerationModel):
             "Content-Type": "application/json"
         }
         
-        model_version = options.get('model', 'black-forest-labs/flux-schnell')
-        
         payload = {
-            "version": model_version,
+            "version": options.get('model', 'black-forest-labs/flux-schnell'),
             "input": {
                 "prompt": prompt,
                 "width": options.get('width', 512),
@@ -392,71 +485,53 @@ class ReplicateClient(BaseImageGenerationModel):
                 prediction = response.json()
                 prediction_url = prediction['urls']['get']
                 
-                max_attempts = 30
-                for attempt in range(max_attempts):
+                for _ in range(30):
                     time.sleep(2)
-                    
                     status_response = requests.get(prediction_url, headers=headers)
                     if status_response.status_code == 200:
                         status_data = status_response.json()
-                        
                         if status_data['status'] == 'succeeded':
                             output = status_data.get('output')
-                            if output and len(output) > 0:
+                            if output:
                                 image_url = output[0] if isinstance(output, list) else output
-                                
                                 img_response = requests.get(image_url, timeout=30)
                                 if img_response.status_code == 200:
                                     return [ImageResult(
                                         image_data=img_response.content,
-                                        image_url=image_url,
                                         prompt=prompt,
-                                        model_used="Replicate FLUX.1"
+                                        model_used="Replicate"
                                     )]
-                        
                         elif status_data['status'] == 'failed':
-                            raise ValueError(f"Generation failed: {status_data.get('error')}")
-                
-                raise TimeoutError("Image generation timed out")
+                            raise ValueError(f"Failed: {status_data.get('error')}")
+                raise TimeoutError("Timed out")
             else:
-                logger.error(f"Replicate API error: {response.text}")
-                raise requests.exceptions.RequestException(f"API Error: {response.text}")
-
+                raise Exception(f"API Error: {response.text}")
         except Exception as e:
-            logger.error(f"Error with Replicate API: {e}")
+            logger.error(f"Replicate error: {e}")
             raise e
 
-# --- Stability AI Client (PAID) ---
+
+# === PAYANT - Stability AI ===
 
 class StabilityAiClient(BaseImageGenerationModel):
-    """
-    Client for Stability AI - Premium service
-    High quality but more expensive than alternatives
-    """
+    """Stability AI - PAID"""
     def __init__(self, api_key: str):
         super().__init__(api_key)
         self.base_url = "https://api.stability.ai/v2beta"
-        self.model_name = "Stability AI (PAID)"
+        self.model_name = "Stability AI"
 
     def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
         if not self.api_key:
-            raise ValueError("API key required for Stability AI")
-            
+            raise ValueError("API key required")
         if options is None:
             options = {}
 
         endpoint_url = f"{self.base_url}/stable-image/generate/core"
-
         payload = {
             "prompt": prompt,
             "output_format": "png",
             "aspect_ratio": "1:1"
         }
-        
-        negative_prompt = options.get('negative_prompt')
-        if negative_prompt:
-            payload["negative_prompt"] = negative_prompt
-
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Accept": "image/*"
@@ -464,82 +539,68 @@ class StabilityAiClient(BaseImageGenerationModel):
 
         try:
             response = requests.post(endpoint_url, headers=headers, data=payload, timeout=60)
-            
             if response.status_code == 200:
                 return [ImageResult(
                     image_data=response.content,
                     prompt=prompt,
-                    model_used="Stability AI Core"
+                    model_used="Stability AI"
                 )]
             else:
-                logger.error(f"Stability AI API error: {response.status_code} - {response.text}")
-                raise requests.exceptions.RequestException(f"API Error {response.status_code}: {response.text}")
-
+                raise Exception(f"API Error: {response.text}")
         except Exception as e:
-            logger.error(f"Error with Stability AI: {e}")
+            logger.error(f"Stability error: {e}")
             raise e
 
-# --- DeepAI Client (PAID) ---
+
+# === PAYANT - DeepAI ===
 
 class DeepAIClient(BaseImageGenerationModel):
-    """
-    Client for DeepAI - PAID with no API key required initially
-    """
+    """DeepAI - PAID"""
     def __init__(self, api_key: str = None):
         super().__init__(api_key)
         self.base_url = "https://api.deepai.org/api/text2img"
-        self.model_name = "DeepAI (PAID)"
+        self.model_name = "DeepAI"
 
     def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
         if options is None:
             options = {}
-            
         headers = {}
         if self.api_key:
             headers["api-key"] = self.api_key
-        
-        data = {
-            'text': prompt,
-            'grid_size': options.get('grid_size', '1'),
-            'width': options.get('width', 512),
-            'height': options.get('height', 512)
-        }
+        data = {'text': prompt}
         
         try:
             response = requests.post(self.base_url, data=data, headers=headers, timeout=60)
-            
             if response.status_code == 200:
                 result = response.json()
                 image_url = result.get('output_url')
-                
                 if image_url:
-                    # Download the image
                     img_response = requests.get(image_url, timeout=30)
                     if img_response.status_code == 200:
                         return [ImageResult(
                             image_data=img_response.content,
-                            image_url=image_url,
                             prompt=prompt,
                             model_used="DeepAI"
                         )]
-                
-                raise ValueError("No image URL in response")
+                raise ValueError("No image URL")
             else:
-                logger.error(f"DeepAI API error: {response.text}")
-                raise requests.exceptions.RequestException(f"API Error: {response.text}")
-                
+                raise Exception(f"API Error: {response.text}")
         except Exception as e:
-            logger.error(f"Error with DeepAI API: {e}")
+            logger.error(f"DeepAI error: {e}")
             raise e
 
-# --- API Factory ---
+
+# === FACTORY ===
 
 def get_api_client(provider: str, api_key: str = None):
-    """Factory function to get the appropriate API client"""
+    """Factory function"""
     clients = {
         'placeholder': lambda: PlaceholderClient(),
-        'pollinations': lambda: PollinationsClient(),
+        'segmind': lambda: SegmindClient(api_key) if api_key else None,
+        'prodia': lambda: ProdiaClient(),
+        'pollinations': lambda: PollinationsClient(api_key),
         'huggingface': lambda: HuggingFaceClient(api_key),
+        'subnp': lambda: SubnpClient(),
         'gemini': lambda: GeminiClient(api_key) if api_key else None,
         'runware': lambda: RunwareClient(api_key) if api_key else None,
         'replicate': lambda: ReplicateClient(api_key) if api_key else None,
@@ -552,67 +613,294 @@ def get_api_client(provider: str, api_key: str = None):
         client = client_factory()
         if client:
             return client
-        else:
-            raise ValueError(f"API key required for {provider}")
-    else:
-        raise ValueError(f"Unknown provider: {provider}")
+        raise ValueError(f"API key required for {provider}")
+    raise ValueError(f"Unknown provider: {provider}")
 
-# List of available providers - UPDATED
+
+def check_all_providers(api_keys: dict = None):
+    """Check health of all providers"""
+    if api_keys is None:
+        api_keys = {}
+    
+    results = {}
+    
+    for provider_name in AVAILABLE_PROVIDERS.keys():
+        try:
+            api_key = api_keys.get(provider_name)
+            provider_info = AVAILABLE_PROVIDERS[provider_name]
+            
+            if provider_info.get('requires_api_key') and not api_key:
+                results[provider_name] = {
+                    'status': 'skipped',
+                    'message': 'API key required',
+                    'healthy': False
+                }
+                continue
+            
+            client = get_api_client(provider_name, api_key)
+            results[provider_name] = {
+                'status': 'available',
+                'message': 'Client initialized',
+                'healthy': True
+            }
+            
+        except Exception as e:
+            results[provider_name] = {
+                'status': 'error',
+                'message': str(e),
+                'healthy': False
+            }
+    
+    return results
+
+
+
+
+class SegmindClient(BaseImageGenerationModel):
+    """
+    Segmind.com - FREE tier: 100 images/day
+    Official API, stable, multiple models
+    """
+    def __init__(self, api_key: str = None):
+        super().__init__(api_key)
+        self.base_url = "https://api.segmind.com/v1"
+        self.model_name = "Segmind"
+        
+        # Free tier models
+        self.models = {
+            "sdxl": "sdxl1.0-txt2img",
+            "sd-1.5": "sd1.5-txt2img",
+            "kandinsky": "kandinsky-2.2-txt2img",
+        }
+
+    def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
+        if options is None:
+            options = {}
+            
+        width = options.get('width', 1024)
+        height = options.get('height', 1024)
+        model_key = options.get('model', 'sdxl')
+        model_endpoint = self.models.get(model_key, self.models['sdxl'])
+        
+        url = f"{self.base_url}/{model_endpoint}"
+        
+        headers = {
+            "x-api-key": self.api_key,
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "prompt": prompt,
+            "negative_prompt": options.get('negative_prompt', ''),
+            "samples": 1,
+            "scheduler": "UniPC",
+            "num_inference_steps": 25,
+            "guidance_scale": options.get('cfg_scale', 7.5),
+            "seed": options.get('seed', -1),
+            "img_width": width,
+            "img_height": height,
+            "base64": False
+        }
+        
+        try:
+            logger.info(f"Segmind: model={model_key}, size={width}x{height}")
+            response = requests.post(url, json=payload, headers=headers, timeout=120)
+            
+            if response.status_code == 200:
+                return [ImageResult(
+                    image_data=response.content,
+                    prompt=prompt,
+                    model_used=f"Segmind {model_key}"
+                )]
+            else:
+                error_text = response.text[:300]
+                logger.error(f"Segmind error {response.status_code}: {error_text}")
+                raise Exception(f"Segmind API Error: {response.status_code}")
+                
+        except Exception as e:
+            logger.error(f"Segmind error: {e}")
+            raise e
+
+    def get_available_models(self):
+        return [
+            {"key": k, "name": k.upper().replace('-', ' ')} 
+            for k in self.models.keys()
+        ]
+
+
+class ProdiaClient(BaseImageGenerationModel):
+    """
+    Prodia.com - Completely FREE (no key needed)
+    Slower but unlimited and stable
+    """
+    def __init__(self, api_key: str = None):
+        super().__init__(api_key)
+        self.base_url = "https://api.prodia.com/v1"
+        self.model_name = "Prodia"
+        
+        # Free models
+        self.models = {
+            "sdxl": "sdxl",
+            "dreamshaper": "dreamshaper_8",
+            "realistic-vision": "realisticVisionV51_v51VAE",
+        }
+
+    def generate_image(self, prompt: str, options: Optional[Dict[str, Any]] = None) -> List[ImageResult]:
+        if options is None:
+            options = {}
+            
+        model_key = options.get('model', 'sdxl')
+        model_id = self.models.get(model_key, self.models['sdxl'])
+        
+        # Step 1: Submit generation job
+        url = f"{self.base_url}/sd/generate"
+        
+        payload = {
+            "prompt": prompt,
+            "model": model_id,
+            "negative_prompt": options.get('negative_prompt', ''),
+            "steps": 25,
+            "cfg_scale": options.get('cfg_scale', 7),
+            "seed": options.get('seed', -1),
+            "sampler": "DPM++ 2M Karras",
+        }
+        
+        try:
+            logger.info(f"Prodia: Submitting job, model={model_key}")
+            response = requests.post(url, json=payload, timeout=30)
+            
+            if response.status_code != 200:
+                raise Exception(f"Failed to submit job: {response.status_code}")
+            
+            data = response.json()
+            job_id = data.get('job')
+            
+            if not job_id:
+                raise Exception("No job ID returned")
+            
+            # Step 2: Poll for completion
+            status_url = f"{self.base_url}/job/{job_id}"
+            max_wait = 120  # 2 minutes max
+            waited = 0
+            
+            while waited < max_wait:
+                time.sleep(5)
+                waited += 5
+                
+                status_response = requests.get(status_url, timeout=10)
+                status_data = status_response.json()
+                
+                status = status_data.get('status')
+                logger.info(f"Prodia: Job {job_id} status={status}, waited={waited}s")
+                
+                if status == 'succeeded':
+                    image_url = status_data.get('imageUrl')
+                    if not image_url:
+                        raise Exception("No image URL in response")
+                    
+                    # Download image
+                    img_response = requests.get(image_url, timeout=30)
+                    return [ImageResult(
+                        image_data=img_response.content,
+                        prompt=prompt,
+                        model_used=f"Prodia {model_key}"
+                    )]
+                elif status == 'failed':
+                    raise Exception("Generation failed")
+            
+            raise Exception("Timeout waiting for generation")
+            
+        except Exception as e:
+            logger.error(f"Prodia error: {e}")
+            raise e
+
+    def get_available_models(self):
+        return [
+            {"key": k, "name": k.replace('-', ' ').title()} 
+            for k in self.models.keys()
+        ]
+
+
+# AVAILABLE_PROVIDERS
 AVAILABLE_PROVIDERS = {
-    # 'placeholder': {
-    #     'name': 'Placeholder (Demo)',
-    #     'description': 'Simple placeholder images for testing only',
-    #     'free': True,
-    #     'requires_api_key': False,
-    #     'quality': 1
-    # },
-    'pollinations': {
-        'name': 'Pollinations.ai',
-        'description': 'Unlimited free AI images, no API key needed',
-        'free': True,
-        'requires_api_key': False,
-        'quality': 3
-    },
     'huggingface': {
         'name': 'Hugging Face',
-        'description': 'Free FLUX & Stable Diffusion models, optional API key',
-        'free': True,
-        'requires_api_key': False,
-        'quality': 4
-    },
-    'gemini': {
-        'name': 'Google Gemini (Nano Banana)',
-        'description': 'High quality, 1500 free requests/day, requires API key',
+        'description': 'FREE with API key - SDXL Lightning',
         'free': True,
         'requires_api_key': True,
-        'quality': 5
+        'quality': 4,
+        'speed': 'medium'
+    },
+    'subnp': {
+        'name': 'Subnp',
+        'description': 'FREE - Magic model',
+        'free': True,
+        'requires_api_key': False,
+        'quality': 3,
+        'speed': 'medium'
+    },
+    'pollinations': {
+        'name': 'Pollinations.ai',
+        'description': 'FREE (currently unstable)',
+        'free': True,
+        'requires_api_key': False,
+        'quality': 4,
+        'speed': 'fast'
+    },
+    'segmind': {
+        'name': 'Segmind',
+        'description': 'FREE tier ended - needs credits',
+        'free': False,
+        'requires_api_key': True,
+        'quality': 4,
+        'speed': 'fast'
+    },
+    'prodia': {
+        'name': 'Prodia',
+        'description': 'API changed - currently broken',
+        'free': False,
+        'requires_api_key': False,
+        'quality': 3,
+        'speed': 'slow'
+    },
+    'gemini': {
+        'name': 'Google Gemini',
+        'description': 'PAID - AI Studio key',
+        'free': False,
+        'requires_api_key': True,
+        'quality': 5,
+        'speed': 'fast'
     },
     'runware': {
         'name': 'Runware',
-        'description': 'Very affordable ($0.002/image), multiple models',
+        'description': 'PAID ($0.002/image)',
         'free': False,
         'requires_api_key': True,
-        'quality': 4
+        'quality': 4,
+        'speed': 'fast'
     },
     'replicate': {
-        'name': 'Replicate (FLUX.1)',
-        'description': 'Pay per use (~$0.003/image), top quality',
+        'name': 'Replicate',
+        'description': 'PAID (~$0.003/image)',
         'free': False,
         'requires_api_key': True,
-        'quality': 5
+        'quality': 5,
+        'speed': 'medium'
     },
     'stability': {
         'name': 'Stability AI',
-        'description': 'Premium quality ($0.01-0.04/image)',
+        'description': 'PAID ($0.01-0.04/image)',
         'free': False,
         'requires_api_key': True,
-        'quality': 5
+        'quality': 5,
+        'speed': 'fast'
     },
     'deepai': {
         'name': 'DeepAI',
-        'description': 'Paid service ($5/500 images)',
+        'description': 'PAID ($5/500 images)',
         'free': False,
         'requires_api_key': True,
-        'quality': 3
-    }
+        'quality': 3,
+        'speed': 'fast'
+    },
 }

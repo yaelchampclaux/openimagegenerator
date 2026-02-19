@@ -52,4 +52,11 @@ urlpatterns = [
     # ============================================
     path('api/stats/', views_advanced.get_statistics_view, name='statistics'),
     path('api/export/', views_advanced.export_images_view, name='export_images'),
+    
+    # ============================================
+    # Health Check APIs
+    # ============================================
+    path('api/health/', views.api_health_check, name='api_health_check'),
+    path('api/providers/working/', views.get_working_providers, name='working_providers'),
+    path('api/test-free/', views.test_free_apis, name='test_free_apis'),
 ]
